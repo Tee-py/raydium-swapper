@@ -11,8 +11,9 @@ raydium_swapper = "GqpnKEGRfwwisQxC8j9AHbtWf8BLzdo4mH3P5oJC7FiQ"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "Devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+swap = "ts-node scripts/main.ts"

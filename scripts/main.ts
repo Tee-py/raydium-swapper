@@ -40,7 +40,8 @@ const swap = async (amountIn: number, sell: boolean) => {
     const sourceAta = sell ? tokenATA : wsolATA;
     const destAta = sell ? wsolATA : tokenATA;
     const signer = anchor.getProvider().publicKey;
-    const ammProgram = new anchor.web3.PublicKey("HWy1jotHpo6UqeQxx49dpYYdQB8wj9Qk9MdxwjLvDHB8")
+    const ammProgram = new anchor.web3.PublicKey("HWy1jotHpo6UqeQxx49dpYYdQB8wj9Qk9MdxwjLvDHB8");
+    const feeRecipient = new anchor.web3.PublicKey("EhCShf6obBJvyqEnoyWQScpt8MwAVy6WKgLcEF2VNKBG");
 
     // Instruction data
     const buffer = Buffer.alloc(16);
@@ -66,6 +67,7 @@ const swap = async (amountIn: number, sell: boolean) => {
         destAta,
         signer,
         ammProgram,
+        feeRecipient
     }).preInstructions([createWSOLAtaIx, transferLamportsToWSOLATAIX, createSyncNativeInstruction(wsolATA), createTokenATAIx]);
     const sig = await txn.rpc();
     console.log(`Explorer URL: https://explorer.solana.com/tx/${sig}?cluster=devnet`)

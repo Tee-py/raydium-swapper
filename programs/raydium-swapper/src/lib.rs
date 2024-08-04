@@ -75,7 +75,6 @@ pub struct Swap<'info> {
     /// CHECK: This will get checked on raydium anyways
     #[account(mut)]
     pub amm_program: UncheckedAccount<'info>,
-    // pub system_program: Program<'info, System>
 }
 
 impl<'a, 'b, 'c, 'info> From<&mut Swap<'info>>
@@ -144,7 +143,7 @@ fn perform_swap<'a, 'b, 'c, 'info>(
         data: ix_data.clone(), 
         accounts
     };
-    msg!("About to run raydium swap");
+    msg!("About to invoke raydium swap instruction");
     msg!("Instruction Data: {:?}", ix_data);
     anchor_lang::solana_program::program::invoke_signed(
         &ix, 

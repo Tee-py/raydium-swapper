@@ -13,11 +13,6 @@ const WSOL: &str = "So11111111111111111111111111111111111111112";
 pub mod raydium_swapper {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        msg!("Greetings from: {:?}", ctx.program_id);
-        Ok(())
-    }
-
     pub fn swap<'info>(ctx: Context<Swap<'info>>, data: Vec<u8>) -> Result<()> {
         msg!("Started swap...");
         perform_swap(ctx.accounts.into(), data)

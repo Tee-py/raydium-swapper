@@ -4,7 +4,7 @@ use anchor_spl::token::TokenAccount;
 
 declare_id!("GqpnKEGRfwwisQxC8j9AHbtWf8BLzdo4mH3P5oJC7FiQ");
 
-const FEE_RECIPIENT: &str = "EhCShf6obBJvyqEnoyWQScpt8MwAVy6WKgLcEF2VNKBG";
+const FEE_RECIPIENT_ATA: &str = "GixZSABmVqzBgoZsLwT4KebBTNj1dQizRpczTobJj157";
 const FEE_RATE: u16 = 100;
 const FEE_DENOMINATOR: u64 = 10_000;
 const WSOL: &str = "So11111111111111111111111111111111111111112";
@@ -77,9 +77,9 @@ pub struct Swap<'info> {
     pub amm_program: UncheckedAccount<'info>,
     #[account(
         mut,
-        constraint = fee_recipient.key().to_string() == FEE_RECIPIENT.to_string()
+        constraint = fee_recipient_ata.key().to_string() == FEE_RECIPIENT_ATA.to_string()
     )]
-    pub fee_recipient: SystemAccount<'info>,
+    pub fee_recipient_ata: Account<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
 }
 
@@ -109,7 +109,7 @@ impl<'a, 'b, 'c, 'info> From<&mut Swap<'info>>
             source_ata: accounts.source_ata.clone(),
             dest_ata: accounts.dest_ata.clone(),
             signer: accounts.signer.clone(),
-            fee_recipient: accounts.fee_recipient.clone(),
+            fee_recipient_ata: accounts.fee_recipient_ata.clone(),
             system_program: accounts.system_program.clone()
         };
         let cpi_program = accounts.amm_program.to_account_info();
@@ -118,7 +118,7 @@ impl<'a, 'b, 'c, 'info> From<&mut Swap<'info>>
 }
 
 fn perform_swap<'a, 'b, 'c, 'info>(
-    mut ctx: CpiContext<'a, 'b, 'c, 'info, Swap<'info>>, 
+    ctx: CpiContext<'a, 'b, 'c, 'info, Swap<'info>>, 
     data: Vec<u8>
 ) -> Result<()> {
     let mut accounts: Vec<AccountMeta> = Vec::with_capacity(16);
@@ -151,48 +151,141 @@ fn perform_swap<'a, 'b, 'c, 'info>(
         data: ix_data.clone(), 
         accounts
     };
-    // calculate buy fee before raydium interaction
-    let buy_fee = if ctx.accounts.source_ata.mint.key().to_string() == WSOL.to_string() {
-        (ctx.accounts.source_ata.amount * FEE_RATE as u64)/FEE_DENOMINATOR
+    if ctx.accounts.source_ata.mint.key().to_string() == WSOL.to_string() {
+        perform_buy(ctx, ix)?;
     } else {
-        0
-    };
-    msg!("Instruction Data: {:?}", ix_data);
-    msg!("Invoking raydium swap instruction...");
+        perform_sell(ctx, ix)?;
+    }
+    // calculate buy fee before raydium interaction
+    // let buy_fee = if ctx.accounts.source_ata.mint.key().to_string() == WSOL.to_string() {
+    //     (ctx.accounts.source_ata.amount * FEE_RATE as u64)/FEE_DENOMINATOR
+    // } else {
+    //     0
+    // };
+    // msg!("Instruction Data: {:?}", ix_data);
+    // msg!("Invoking raydium swap instruction...");
+    // anchor_lang::solana_program::program::invoke_signed(
+    //     &ix, 
+    //     &ToAccountInfos::to_account_infos(&ctx),
+    //     ctx.signer_seeds
+    // )?;
+    // // calculate sell fee after raydium interaction
+    // ctx.accounts.dest_ata.reload()?;
+    // msg!("Destination Account Amount: {:?}", ctx.accounts.dest_ata.amount);
+    // msg!("Source Account Amount: {:?}", ctx.accounts.source_ata.amount);
+    // let sell_fee = if ctx.accounts.source_ata.mint.key().to_string() == WSOL.to_string() {
+    //     0
+    // } else {
+    //     (ctx.accounts.dest_ata.amount * FEE_RATE as u64)/FEE_DENOMINATOR
+    // };
+    // let fee = if buy_fee > 0 {
+    //     buy_fee
+    // } else {
+    //     sell_fee
+    // };
+
+    // let fee_transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
+    //     &ctx.accounts.signer.key(), 
+    //     &ctx.accounts.fee_recipient.key(), 
+    //     fee
+    // );
+    // msg!("Fee: {:?}", fee);
+    // msg!("Invoking fee transfer instruction...");
+    // anchor_lang::solana_program::program::invoke_signed(
+    //     &fee_transfer_ix, 
+    //     &[
+    //         ctx.accounts.signer.to_account_info(),
+    //         ctx.accounts.fee_recipient_ata.to_account_info(),
+    //         ctx.accounts.system_program.to_account_info()
+    //     ], 
+    //     &[]
+    // )?;
+    Ok(())
+}
+
+fn calculate_fee(amount: u64) -> u64 {
+    (amount * FEE_RATE as u64)/FEE_DENOMINATOR
+}
+
+fn transfer_fees<'info>(
+    token_program: AccountInfo<'info>, 
+    source: AccountInfo<'info>, 
+    dest: AccountInfo<'info>,
+    signer: AccountInfo<'info>,
+    fee: u64
+) -> Result<()> {
+    let fee_transfer_ctx = CpiContext::new(
+        token_program,
+        anchor_spl::token::Transfer {
+            from: source,
+            to: dest,
+            authority: signer
+        }
+    );
+    anchor_spl::token::transfer(fee_transfer_ctx, fee)
+}
+
+fn perform_buy<'a, 'b, 'c, 'info>(ctx: CpiContext<'a, 'b, 'c, 'info, Swap<'info>>, mut ix: Instruction) -> Result<()> {
+    let fee = calculate_fee(ctx.accounts.source_ata.amount);
+    let amount_in = ctx.accounts.source_ata.amount - fee;
+    let mut data = vec![9];
+    data.extend(amount_in.to_le_bytes());
+    data.extend(0_u64.to_le_bytes());
+    ix.data = data;
+
+    msg!("Invoking raydium swap instruction to buy token...");
     anchor_lang::solana_program::program::invoke_signed(
         &ix, 
         &ToAccountInfos::to_account_infos(&ctx),
         ctx.signer_seeds
     )?;
-    // calculate sell fee after raydium interaction
-    ctx.accounts.dest_ata.reload()?;
-    msg!("Destination Account Amount: {:?}", ctx.accounts.dest_ata.amount);
-    msg!("Source Account Amount: {:?}", ctx.accounts.source_ata.amount);
-    let sell_fee = if ctx.accounts.source_ata.mint.key().to_string() == WSOL.to_string() {
-        0
-    } else {
-        (ctx.accounts.dest_ata.amount * FEE_RATE as u64)/FEE_DENOMINATOR
-    };
-    let fee = if buy_fee > 0 {
-        buy_fee
-    } else {
-        sell_fee
-    };
-    let fee_transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
-        &ctx.accounts.signer.key(), 
-        &ctx.accounts.fee_recipient.key(), 
+    
+    msg!("Transfering fees...");
+    transfer_fees(
+        ctx.accounts.token_program.to_account_info(), 
+        ctx.accounts.source_ata.to_account_info(), 
+        ctx.accounts.fee_recipient_ata.to_account_info(), 
+        ctx.accounts.signer.to_account_info(), 
         fee
-    );
-    msg!("Fee: {:?}", fee);
-    msg!("Invoking fee transfer instruction...");
-    anchor_lang::solana_program::program::invoke_signed(
-        &fee_transfer_ix, 
-        &[
-            ctx.accounts.signer.to_account_info(),
-            ctx.accounts.fee_recipient.to_account_info(),
-            ctx.accounts.system_program.to_account_info()
-        ], 
-        &[]
     )?;
+    // let fee_transfer_ctx = CpiContext::new(
+    //     ctx.accounts.token_program.to_account_info(),
+    //     anchor_spl::token::Transfer {
+    //         from: ctx.accounts.source_ata.to_account_info(),
+    //         to: ctx.accounts.fee_recipient_ata.to_account_info(),
+    //         authority: ctx.accounts.signer.to_account_info()
+    //     }
+    // );
+    // anchor_spl::token::transfer(fee_transfer_ctx, fee)?;
+    Ok(())
+}
+
+fn perform_sell<'a, 'b, 'c, 'info>(mut ctx: CpiContext<'a, 'b, 'c, 'info, Swap<'info>>, ix: Instruction) -> Result<()> {
+    msg!("Invoking raydium swap instruction to sell token...");
+    anchor_lang::solana_program::program::invoke_signed(
+        &ix, 
+        &ToAccountInfos::to_account_infos(&ctx),
+        ctx.signer_seeds
+    )?;
+
+    ctx.accounts.dest_ata.reload()?;
+    let fee = calculate_fee(ctx.accounts.dest_ata.amount);
+    msg!("Transfering fees...");
+    transfer_fees(
+        ctx.accounts.token_program.to_account_info(), 
+        ctx.accounts.dest_ata.to_account_info(), 
+        ctx.accounts.fee_recipient_ata.to_account_info(), 
+        ctx.accounts.signer.to_account_info(), 
+        fee
+    )?;
+    // let fee_transfer_ctx = CpiContext::new(
+    //     ctx.accounts.token_program.to_account_info(),
+    //     anchor_spl::token::Transfer {
+    //         from: ctx.accounts.dest_ata.to_account_info(),
+    //         to: ctx.accounts.fee_recipient_ata.to_account_info(),
+    //         authority: ctx.accounts.signer.to_account_info()
+    //     }
+    // );
+    // anchor_spl::token::transfer(fee_transfer_ctx, fee)?;
     Ok(())
 }
